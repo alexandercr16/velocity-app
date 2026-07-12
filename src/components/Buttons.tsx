@@ -25,12 +25,17 @@ interface GhostButtonProps {
   label: string;
   onPress: () => void;
   disabled?: boolean;
+  fullWidth?: boolean;
 }
 
-export function GhostButton({ label, onPress, disabled }: GhostButtonProps) {
+export function GhostButton({ label, onPress, disabled, fullWidth }: GhostButtonProps) {
   return (
-    <Pressable onPress={onPress} disabled={disabled} style={[styles.ghost, disabled && styles.ghostDisabled]}>
-      <Text style={styles.ghostLabel}>{label}</Text>
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      style={[styles.ghost, fullWidth && styles.ghostFullWidth, disabled && styles.ghostDisabled]}
+    >
+      <Text style={[styles.ghostLabel, fullWidth && styles.ghostLabelFullWidth]}>{label}</Text>
     </Pressable>
   );
 }
@@ -61,6 +66,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  ghostFullWidth: {
+    width: "100%",
+    height: undefined,
+    paddingVertical: 15,
+    borderRadius: 15,
+  },
   ghostDisabled: {
     opacity: 0.5,
   },
@@ -68,5 +79,8 @@ const styles = StyleSheet.create({
     fontFamily: fonts.uiSemibold,
     fontSize: 13,
     color: colors.ink,
+  },
+  ghostLabelFullWidth: {
+    fontSize: 15.5,
   },
 });

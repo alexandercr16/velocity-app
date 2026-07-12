@@ -102,3 +102,36 @@ export function PauseIcon({ size = 22, color = "#fff" }: IconProps) {
     </Svg>
   );
 }
+
+export function LibraryIcon({ size = 20, color = "#191B20" }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M4 19.5A2.5 2.5 0 016.5 17H20" stroke={color} strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" />
+      <Path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z" stroke={color} strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+  );
+}
+
+export function SaveIcon({ size = 15, color = "#191B20" }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"
+        stroke={color}
+        strokeWidth={1.8}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <Path d="M17 21v-8H7v8" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
+      <Path d="M7 3v5h8" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+  );
+}
+
+export function CloseIcon({ size = 12, color = "#fff" }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M6 6l12 12M18 6L6 18" stroke={color} strokeWidth={2.4} strokeLinecap="round" />
+    </Svg>
+  );
+}

@@ -1,8 +1,9 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { LastSession, Settings } from "../types";
+import { LastSession, LibraryEntry, Settings } from "../types";
 
 const SETTINGS_KEY = "velocity:settings";
 const SESSION_KEY = "velocity:lastSession";
+const LIBRARY_KEY = "velocity:library";
 
 export async function loadSettings(): Promise<Settings | null> {
   try {
@@ -43,5 +44,22 @@ export async function clearLastSession(): Promise<void> {
     await AsyncStorage.removeItem(SESSION_KEY);
   } catch {
     // ignore
+  }
+}
+
+export async function loadLibrary(): Promise<LibraryEntry[]> {
+  try {
+    const raw = await AsyncStorage.getItem(LIBRARY_KEY);
+    return raw ? (JSON.parse(raw) as LibraryEntry[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function saveLibrary(entries: LibraryEntry[]): Promise<void> {
+  try {
+    await AsyncStorage.setItem(LIBRARY_KEY, JSON.stringify(entries));
+  } catch {
+    // best-effort persistence; ignore write failures
   }
 }

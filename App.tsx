@@ -12,16 +12,28 @@ import {
 import { Newsreader_400Regular, Newsreader_500Medium, Newsreader_500Medium_Italic } from "@expo-google-fonts/newsreader";
 import { JetBrainsMono_400Regular, JetBrainsMono_500Medium } from "@expo-google-fonts/jetbrains-mono";
 
+import HomeScreen from "./src/screens/HomeScreen";
+import AuthScreen, { AuthMode } from "./src/screens/AuthScreen";
+import LibraryScreen from "./src/screens/LibraryScreen";
 import ImportScreen from "./src/screens/ImportScreen";
 import ModeScreen from "./src/screens/ModeScreen";
 import ReaderScreen from "./src/screens/ReaderScreen";
 import { colors } from "./src/theme";
+import { buildDocument } from "./src/lib/textIngestion";
 import { MODE_META, useReaderEngine } from "./src/lib/readerEngine";
-import { clearLastSession, loadLastSession, loadSettings, saveLastSession, saveSettings } from "./src/lib/storage";
-import { Document, LastSession, Mode } from "./src/types";
+import {
+  clearLastSession,
+  loadLastSession,
+  loadLibrary,
+  loadSettings,
+  saveLastSession,
+  saveLibrary,
+  saveSettings,
+} from "./src/lib/storage";
+import { Document, LastSession, LibraryEntry, Mode } from "./src/types";
 
-type Screen = "import" | "mode" | "reader";
-const SCREEN_ORDER: Record<Screen, number> = { import: 0, mode: 1, reader: 2 };
+type Screen = "home" | "auth" | "import" | "library" | "mode" | "reader";
+const SCREEN_ORDER: Record<Screen, number> = { home: 0, auth: 1, import: 2, library: 2, mode: 3, reader: 4 };
 
 export default function App() {
   const [fontsLoaded] = useFonts({
@@ -36,8 +48,10 @@ export default function App() {
     JetBrainsMono_500Medium,
   });
 
-  const [screen, setScreen] = useState<Screen>("import");
+  const [screen, setScreen] = useState<Screen>("home");
+  const [authMode, setAuthMode] = useState<AuthMode>("login");
   const [document, setDocument] = useState<Document | null>(null);
+  const [library, setLibrary] = useState<LibraryEntry[]>([]);
   const [resumeSession, setResumeSession] = useState<LastSession | null>(null);
   const [pendingEnterIndex, setPendingEnterIndex] = useState<number | null>(null);
   const settingsLoadedRef = useRef(false);
@@ -65,16 +79,17 @@ export default function App() {
     },
   });
 
-  // Load persisted settings + any in-progress session once on launch.
+  // Load persisted settings + any in-progress session + the saved library once on launch.
   useEffect(() => {
     (async () => {
-      const [settings, session] = await Promise.all([loadSettings(), loadLastSession()]);
+      const [settings, session, savedLibrary] = await Promise.all([loadSettings(), loadLastSession(), loadLibrary()]);
       if (settings) {
         engine.setMode(settings.mode);
         engine.setWpm(settings.wpm);
         engine.setTtsRate(settings.ttsRate);
       }
       if (session) setResumeSession(session);
+      setLibrary(savedLibrary);
       settingsLoadedRef.current = true;
       setSettingsLoaded(true);
     })();
@@ -119,6 +134,33 @@ export default function App() {
     setResumeSession(null);
   }
 
+  function handleSaveToLibrary(doc: Document) {
+    if (library.some((e) => e.rawText === doc.rawText)) return;
+    const entry: LibraryEntry = {
+      id: String(Date.now()),
+      title: doc.title.slice(0, 60),
+      rawText: doc.rawText,
+      wordCount: doc.words.length,
+      savedAt: Date.now(),
+    };
+    const next = [...library, entry];
+    setLibrary(next);
+    saveLibrary(next);
+  }
+
+  function handleDeleteLibraryEntry(id: string) {
+    const next = library.filter((e) => e.id !== id);
+    setLibrary(next);
+    saveLibrary(next);
+  }
+
+  function handleOpenLibraryEntry(entry: LibraryEntry) {
+    setDocument(buildDocument(entry.rawText, entry.title, entry.title));
+    setScreen("mode");
+  }
+
+  const isSaved = !!document && library.some((e) => e.rawText === document.rawText);
+
   if (!fontsLoaded) return null;
 
   return (
@@ -130,6 +172,9 @@ export default function App() {
           document={document}
           engine={engine}
           resumeSession={resumeSession}
+          authMode={authMode}
+          library={library}
+          isSaved={isSaved}
           onDocumentChange={setDocument}
           onContinue={() => document && setScreen("mode")}
           onResume={handleResume}
@@ -141,6 +186,23 @@ export default function App() {
             engine.exit();
             setScreen("mode");
           }}
+          onLogin={() => {
+            setAuthMode("login");
+            setScreen("auth");
+          }}
+          onSignup={() => {
+            setAuthMode("signup");
+            setScreen("auth");
+          }}
+          onGuest={() => setScreen("import")}
+          onAuthBack={() => setScreen("home")}
+          onToggleAuthMode={() => setAuthMode((m) => (m === "signup" ? "login" : "signup"))}
+          onAuthSubmit={() => setScreen("import")}
+          onOpenLibrary={() => setScreen("library")}
+          onBackFromLibrary={() => setScreen("import")}
+          onOpenLibraryEntry={handleOpenLibraryEntry}
+          onDeleteLibraryEntry={handleDeleteLibraryEntry}
+          onSaveToLibrary={handleSaveToLibrary}
         />
       </SafeAreaView>
     </SafeAreaProvider>
@@ -152,6 +214,9 @@ interface ScreensProps {
   document: Document | null;
   engine: ReturnType<typeof useReaderEngine>;
   resumeSession: LastSession | null;
+  authMode: AuthMode;
+  library: LibraryEntry[];
+  isSaved: boolean;
   onDocumentChange: (doc: Document | null) => void;
   onContinue: () => void;
   onResume: () => void;
@@ -160,6 +225,17 @@ interface ScreensProps {
   onBackToImport: () => void;
   onStart: () => void;
   onExitReader: () => void;
+  onLogin: () => void;
+  onSignup: () => void;
+  onGuest: () => void;
+  onAuthBack: () => void;
+  onToggleAuthMode: () => void;
+  onAuthSubmit: () => void;
+  onOpenLibrary: () => void;
+  onBackFromLibrary: () => void;
+  onOpenLibraryEntry: (entry: LibraryEntry) => void;
+  onDeleteLibraryEntry: (id: string) => void;
+  onSaveToLibrary: (doc: Document) => void;
 }
 
 function Screens({
@@ -167,6 +243,9 @@ function Screens({
   document,
   engine,
   resumeSession,
+  authMode,
+  library,
+  isSaved,
   onDocumentChange,
   onContinue,
   onResume,
@@ -175,10 +254,24 @@ function Screens({
   onBackToImport,
   onStart,
   onExitReader,
+  onLogin,
+  onSignup,
+  onGuest,
+  onAuthBack,
+  onToggleAuthMode,
+  onAuthSubmit,
+  onOpenLibrary,
+  onBackFromLibrary,
+  onOpenLibraryEntry,
+  onDeleteLibraryEntry,
+  onSaveToLibrary,
 }: ScreensProps) {
   const width = Dimensions.get("window").width;
   const anims = useRef({
-    import: { x: new Animated.Value(0), o: new Animated.Value(1) },
+    home: { x: new Animated.Value(0), o: new Animated.Value(1) },
+    auth: { x: new Animated.Value(width), o: new Animated.Value(0) },
+    import: { x: new Animated.Value(width), o: new Animated.Value(0) },
+    library: { x: new Animated.Value(width), o: new Animated.Value(0) },
     mode: { x: new Animated.Value(width), o: new Animated.Value(0) },
     reader: { x: new Animated.Value(width), o: new Animated.Value(0) },
   }).current;
@@ -187,7 +280,7 @@ function Screens({
     const cur = SCREEN_ORDER[screen];
     const runs = (Object.keys(anims) as Screen[]).map((key) => {
       const order = SCREEN_ORDER[key];
-      const active = order === cur;
+      const active = key === screen;
       const targetX = active ? 0 : order < cur ? -width * 0.12 : width;
       return Animated.parallel([
         Animated.timing(anims[key].x, {
@@ -209,6 +302,20 @@ function Screens({
   return (
     <View style={styles.stack}>
       <Animated.View
+        style={[styles.layer, { transform: [{ translateX: anims.home.x }], opacity: anims.home.o }]}
+        pointerEvents={screen === "home" ? "auto" : "none"}
+      >
+        <HomeScreen onLogin={onLogin} onSignup={onSignup} onGuest={onGuest} />
+      </Animated.View>
+
+      <Animated.View
+        style={[styles.layer, { transform: [{ translateX: anims.auth.x }], opacity: anims.auth.o }]}
+        pointerEvents={screen === "auth" ? "auto" : "none"}
+      >
+        <AuthScreen mode={authMode} onToggleMode={onToggleAuthMode} onBack={onAuthBack} onSubmit={onAuthSubmit} />
+      </Animated.View>
+
+      <Animated.View
         style={[styles.layer, { transform: [{ translateX: anims.import.x }], opacity: anims.import.o }]}
         pointerEvents={screen === "import" ? "auto" : "none"}
       >
@@ -218,6 +325,21 @@ function Screens({
           resumeSession={resumeSession}
           onResume={onResume}
           onDismissResume={onDismissResume}
+          onOpenLibrary={onOpenLibrary}
+          isSaved={isSaved}
+          onSaveToLibrary={onSaveToLibrary}
+        />
+      </Animated.View>
+
+      <Animated.View
+        style={[styles.layer, { transform: [{ translateX: anims.library.x }], opacity: anims.library.o }]}
+        pointerEvents={screen === "library" ? "auto" : "none"}
+      >
+        <LibraryScreen
+          entries={library}
+          onOpen={onOpenLibraryEntry}
+          onDelete={onDeleteLibraryEntry}
+          onBack={onBackFromLibrary}
         />
       </Animated.View>
 

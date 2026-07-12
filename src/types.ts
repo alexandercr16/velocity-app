@@ -15,6 +15,15 @@ export interface Document {
   paraWordCounts: number[];
   words: string[];
   sourceLabel: string;
+  title: string;
+}
+
+export interface LibraryEntry {
+  id: string;
+  title: string;
+  rawText: string;
+  wordCount: number;
+  savedAt: number;
 }
 
 export interface Settings {

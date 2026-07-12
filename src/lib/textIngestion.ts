@@ -23,21 +23,25 @@ export function tokenize(rawText: string) {
   return { paragraphs, words, paraWordCounts };
 }
 
-export function buildDocument(rawText: string, sourceLabel: string): Document {
+export function buildDocument(rawText: string, sourceLabel: string, title?: string): Document {
   const trimmed = (rawText || "").trim();
   if (!trimmed) throw new ImportError("That didn't produce any readable text.");
   const tok = tokenize(trimmed);
   if (tok.words.length < 5) {
     throw new ImportError("That's very short — try a longer piece.");
   }
-  return { rawText: trimmed, ...tok, sourceLabel };
+  return { rawText: trimmed, ...tok, sourceLabel, title: title || sourceLabel };
+}
+
+function stripExtension(filename: string): string {
+  return filename.replace(/\.[^.]+$/, "");
 }
 
 export async function readTxtFile(uri: string, name: string): Promise<Document> {
   const text = await FileSystem.readAsStringAsync(uri, {
     encoding: FileSystem.EncodingType.UTF8,
   });
-  return buildDocument(text, name);
+  return buildDocument(text, name, stripExtension(name));
 }
 
 export async function readEpubFile(uri: string, name: string): Promise<Document> {
@@ -86,7 +90,7 @@ export async function readEpubFile(uri: string, name: string): Promise<Document>
     const html = await entry.async("string");
     parts.push(stripHtml(html));
   }
-  return buildDocument(parts.join("\n\n"), name);
+  return buildDocument(parts.join("\n\n"), name, stripExtension(name));
 }
 
 export async function fetchUrlText(url: string): Promise<Document> {
@@ -103,7 +107,18 @@ export async function fetchUrlText(url: string): Promise<Document> {
   const articleMatch = html.match(/<article[\s\S]*?<\/article>/i);
   const bodyMatch = html.match(/<body[\s\S]*?<\/body>/i);
   const scope = articleMatch ? articleMatch[0] : bodyMatch ? bodyMatch[0] : html;
-  return buildDocument(stripHtml(scope), "Page");
+
+  const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+  let title = titleMatch ? decodeEntities(titleMatch[1]).trim() : "";
+  if (!title) {
+    try {
+      title = new URL(url).hostname.replace(/^www\./, "");
+    } catch {
+      title = "Web article";
+    }
+  }
+
+  return buildDocument(stripHtml(scope), "Page", title);
 }
 
 function matchAttr(tag: string, attr: string): string | null {
@@ -143,5 +158,5 @@ export async function readPdfFile(
     encoding: FileSystem.EncodingType.Base64,
   });
   const text = await extractPdfText(base64);
-  return buildDocument(text, name);
+  return buildDocument(text, name, stripExtension(name));
 }

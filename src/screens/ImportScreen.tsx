@@ -3,7 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-
 import * as DocumentPicker from "expo-document-picker";
 import { colors, fonts } from "../theme";
 import { PrimaryButton, GhostButton } from "../components/Buttons";
-import { UploadIcon } from "../components/Icons";
+import { LibraryIcon, SaveIcon, UploadIcon } from "../components/Icons";
 import { usePdfExtractor } from "../lib/PdfExtractor";
 import {
   buildDocument,
@@ -24,9 +24,21 @@ interface Props {
   resumeSession: LastSession | null;
   onResume: () => void;
   onDismissResume: () => void;
+  onOpenLibrary: () => void;
+  isSaved: boolean;
+  onSaveToLibrary: (doc: Document) => void;
 }
 
-export default function ImportScreen({ onDocumentChange, onContinue, resumeSession, onResume, onDismissResume }: Props) {
+export default function ImportScreen({
+  onDocumentChange,
+  onContinue,
+  resumeSession,
+  onResume,
+  onDismissResume,
+  onOpenLibrary,
+  isSaved,
+  onSaveToLibrary,
+}: Props) {
   const [tab, setTab] = useState<Tab>("paste");
   const [pasteText, setPasteText] = useState("");
   const [urlText, setUrlText] = useState("");
@@ -67,7 +79,7 @@ export default function ImportScreen({ onDocumentChange, onContinue, resumeSessi
     setPasteText(SAMPLE_TEXT);
     setTab("paste");
     try {
-      applyDocument(buildDocument(SAMPLE_TEXT, "Sample text"));
+      applyDocument(buildDocument(SAMPLE_TEXT, "Sample text", "Alice in Wonderland (sample)"));
     } catch (err) {
       fail(err);
     }
@@ -138,10 +150,17 @@ export default function ImportScreen({ onDocumentChange, onContinue, resumeSessi
           </View>
         ) : null}
 
-        <Text style={styles.eyebrow}>Read faster</Text>
-        <Text style={styles.logo}>
-          Veloc<Text style={styles.logoItalic}>i</Text>ty
-        </Text>
+        <View style={styles.headerRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.eyebrow}>Read faster</Text>
+            <Text style={styles.logo}>
+              Veloc<Text style={styles.logoItalic}>i</Text>ty
+            </Text>
+          </View>
+          <Pressable onPress={onOpenLibrary} style={styles.libraryBtn} hitSlop={4}>
+            <LibraryIcon />
+          </Pressable>
+        </View>
         <Text style={styles.subtitle}>Bring in an article, file, or page. Choose how you want to move through it.</Text>
 
         <View style={styles.tabs}>
@@ -203,6 +222,18 @@ export default function ImportScreen({ onDocumentChange, onContinue, resumeSessi
         {status.msg ? (
           <Text style={[styles.loadStatus, status.isError && { color: colors.pivot }]}>{status.msg}</Text>
         ) : null}
+
+        {doc ? (
+          <Pressable
+            onPress={() => !isSaved && onSaveToLibrary(doc)}
+            style={[styles.saveBtn, isSaved && styles.saveBtnSaved]}
+          >
+            <SaveIcon size={15} color={isSaved ? colors.sub : colors.ink} />
+            <Text style={[styles.saveBtnLabel, isSaved && { color: colors.sub }]}>
+              {isSaved ? "Saved ✓" : "Save to Library"}
+            </Text>
+          </Pressable>
+        ) : null}
       </ScrollView>
 
       <View style={styles.footer}>
@@ -235,6 +266,17 @@ const styles = StyleSheet.create({
   },
   resumeActionLabel: { fontFamily: fonts.uiSemibold, fontSize: 12.5, color: "#fff" },
   resumeDismiss: { fontFamily: fonts.ui, fontSize: 15, color: colors.faint, paddingHorizontal: 2 },
+  headerRow: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
+  libraryBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 13,
+    borderWidth: 1,
+    borderColor: colors.line,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 2,
+  },
   eyebrow: {
     fontFamily: fonts.monoMedium,
     fontSize: 11,
@@ -354,6 +396,21 @@ const styles = StyleSheet.create({
     marginTop: 16,
     minHeight: 16,
   },
+  saveBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    alignSelf: "flex-start",
+    marginTop: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: 11,
+    backgroundColor: colors.wash,
+  },
+  saveBtnSaved: { opacity: 0.8 },
+  saveBtnLabel: { fontFamily: fonts.uiSemibold, fontSize: 13, color: colors.ink },
   footer: {
     padding: 24,
     paddingTop: 14,

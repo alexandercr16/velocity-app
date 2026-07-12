@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as Speech from "expo-speech";
 import { Document, Mode, ModeMeta } from "../types";
+import { detectLanguageCode } from "./languageDetect";
+
+const MAX_VOICE_SLOTS = 5;
 
 interface BoundaryEvent {
   charIndex: number;
@@ -79,6 +82,8 @@ export function useReaderEngine({ document, initialMode, initialWpm, initialTtsR
   const words = document?.words ?? [];
   const wordsRef = useRef(words);
   wordsRef.current = words;
+  const documentRef = useRef(document);
+  documentRef.current = document;
 
   const modeRef = useRef(mode);
   modeRef.current = mode;
@@ -99,6 +104,11 @@ export function useReaderEngine({ document, initialMode, initialWpm, initialTtsR
   const persistIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const onProgressRef = useRef(onProgress);
   onProgressRef.current = onProgress;
+  // Bumped on every stop/restart of TTS so a native callback belonging to a
+  // superseded utterance (expo-speech's stop() is async and can race with a
+  // fresh speak() call) can recognize itself as stale and no-op instead of
+  // corrupting isPlaying/currentIndex.
+  const ttsGenRef = useRef(0);
 
   const clearTimers = useCallback(() => {
     if (timerRef.current) {
@@ -162,7 +172,7 @@ export function useReaderEngine({ document, initialMode, initialWpm, initialTtsR
 
   // ---------- Read Aloud (TTS) ----------
   const startTTS = useCallback(() => {
-    const doc = document;
+    const doc = documentRef.current;
     if (!doc) return;
     const fullText = doc.paragraphs.join("\n\n");
     const fullOffsets = computeWordOffsets(fullText);
@@ -170,48 +180,62 @@ export function useReaderEngine({ document, initialMode, initialWpm, initialTtsR
     const startChar = fullOffsets[startIdx] || 0;
     const textToSpeak = fullText.slice(startChar);
     const subOffsets = fullOffsets.slice(startIdx).map((o) => o - startChar);
+    const detectedLang = detectLanguageCode(doc.rawText);
 
-    boundarySupportedRef.current = false;
+    // Claim this generation before awaiting stop() so any earlier in-flight
+    // restart (its own stop().then() below) recognizes itself as superseded
+    // and skips speaking once its stop() resolves.
+    const myGen = ++ttsGenRef.current;
     let pointer = startIdx;
 
-    Speech.stop();
-    Speech.speak(textToSpeak, {
-      rate: Math.max(0.5, Math.min(2.5, ttsRateRef.current)),
-      voice: selectedVoiceIdRef.current ?? undefined,
-      onBoundary: (ev: BoundaryEvent) => {
-        boundarySupportedRef.current = true;
-        const idx = ev.charIndex;
-        let rel = pointer - startIdx;
-        while (rel < subOffsets.length - 1 && subOffsets[rel + 1] <= idx) {
-          rel++;
-          pointer++;
-        }
-        currentIndexRef.current = pointer;
-        setCurrentIndex(pointer);
-      },
-      onDone: () => finish(),
-      onError: () => finish(),
-    });
+    Speech.stop().finally(() => {
+      if (myGen !== ttsGenRef.current) return; // a newer call already took over
+      boundarySupportedRef.current = false;
+      Speech.speak(textToSpeak, {
+        language: detectedLang,
+        rate: Math.max(0.5, Math.min(2.5, ttsRateRef.current)),
+        voice: selectedVoiceIdRef.current ?? undefined,
+        onBoundary: (ev: BoundaryEvent) => {
+          if (myGen !== ttsGenRef.current) return;
+          boundarySupportedRef.current = true;
+          const idx = ev.charIndex;
+          let rel = pointer - startIdx;
+          while (rel < subOffsets.length - 1 && subOffsets[rel + 1] <= idx) {
+            rel++;
+            pointer++;
+          }
+          currentIndexRef.current = pointer;
+          setCurrentIndex(pointer);
+        },
+        onDone: () => {
+          if (myGen === ttsGenRef.current) finish();
+        },
+        onError: () => {
+          if (myGen === ttsGenRef.current) finish();
+        },
+      });
 
-    fallbackTimerRef.current = setTimeout(function check() {
-      if (!isPlayingRef.current) return;
-      if (boundarySupportedRef.current) return;
-      const approxWpm = Math.max(40, Math.round(ttsRateRef.current * 150));
-      const interval = 60000 / approxWpm;
-      const next = currentIndexRef.current + 1;
-      if (next >= wordsRef.current.length) return;
-      currentIndexRef.current = next;
-      setCurrentIndex(next);
-      fallbackTimerRef.current = setTimeout(check, interval);
-    }, 1200);
-  }, [document, finish]);
+      fallbackTimerRef.current = setTimeout(function check() {
+        if (myGen !== ttsGenRef.current) return;
+        if (!isPlayingRef.current) return;
+        if (boundarySupportedRef.current) return;
+        const approxWpm = Math.max(40, Math.round(ttsRateRef.current * 150));
+        const interval = 60000 / approxWpm;
+        const next = currentIndexRef.current + 1;
+        if (next >= wordsRef.current.length) return;
+        currentIndexRef.current = next;
+        setCurrentIndex(next);
+        fallbackTimerRef.current = setTimeout(check, interval);
+      }, 1200);
+    });
+  }, [finish]);
 
   const restartTTSFromCurrent = useCallback(() => {
-    Speech.stop();
     startTTS();
   }, [startTTS]);
 
   const pause = useCallback(() => {
+    ttsGenRef.current++;
     clearTimers();
     isPlayingRef.current = false;
     setIsPlaying(false);
@@ -283,12 +307,30 @@ export function useReaderEngine({ document, initialMode, initialWpm, initialTtsR
   const loadVoices = useCallback(() => {
     Speech.getAvailableVoicesAsync()
       .then((list) => {
-        const opts = list.map((v) => ({ identifier: v.identifier, label: `${v.name} (${v.language})` }));
+        const detected = detectLanguageCode(documentRef.current?.rawText || "");
+        const matching = (code: string) => list.filter((v) => v.language.toLowerCase().startsWith(code));
+
+        let pool = matching(detected);
+        if (!pool.length) pool = matching("en");
+        if (!pool.length) pool = list;
+
+        const seenNames = new Set<string>();
+        const deduped = pool.filter((v) => {
+          if (seenNames.has(v.name)) return false;
+          seenNames.add(v.name);
+          return true;
+        });
+        deduped.sort((a, b) => {
+          if (a.quality !== b.quality) return a.quality === "Enhanced" ? -1 : 1;
+          return a.name.localeCompare(b.name);
+        });
+        const picked = deduped.slice(0, MAX_VOICE_SLOTS);
+
+        const opts = picked.map((v, i) => ({ identifier: v.identifier, label: `Voice ${i + 1} · ${v.name}` }));
         setVoices(opts);
-        if (opts.length && !selectedVoiceIdRef.current) {
-          const preferred = list.find((v) => /en/i.test(v.language)) || list[0];
-          selectedVoiceIdRef.current = preferred.identifier;
-          setSelectedVoiceId(preferred.identifier);
+        if (opts.length && !picked.some((v) => v.identifier === selectedVoiceIdRef.current)) {
+          selectedVoiceIdRef.current = picked[0].identifier;
+          setSelectedVoiceId(picked[0].identifier);
         }
       })
       .catch(() => setVoices([]));
@@ -296,6 +338,7 @@ export function useReaderEngine({ document, initialMode, initialWpm, initialTtsR
 
   const enter = useCallback(
     (startIndex = 0) => {
+      ttsGenRef.current++;
       clearTimers();
       Speech.stop();
       isPlayingRef.current = false;
