@@ -58,7 +58,7 @@ export default function ReaderScreen({ engine, paragraphs, onBack }: Props) {
         </View>
       </View>
 
-      <View style={styles.body}>
+      <View style={mode === "pro" ? styles.bodyCentered : styles.bodyFlow}>
         {mode === "pro" ? (
           <View style={styles.rsvpStage}>
             <View style={styles.tickTop} />
@@ -147,7 +147,11 @@ const styles = StyleSheet.create({
   modeTag: { fontFamily: fonts.uiSemibold, fontSize: 13, color: colors.ink },
   wpmReadout: { fontFamily: fonts.monoMedium, fontSize: 12.5, color: colors.ink },
   timeReadout: { fontFamily: fonts.mono, fontSize: 11, color: colors.faint },
-  body: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 22, overflow: "hidden" },
+  bodyCentered: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 22, overflow: "hidden" },
+  // FlowText owns its own centering (via contentContainerStyle) so it can also
+  // scroll when content overflows — centering the wrapper itself would collapse
+  // the ScrollView's height and break both auto-follow and manual scrolling.
+  bodyFlow: { flex: 1, paddingHorizontal: 22, overflow: "hidden" },
   rsvpStage: { width: "100%", maxWidth: 360, alignSelf: "center" },
   tickTop: { position: "absolute", left: "50%", top: -26, width: 2, height: 14, backgroundColor: colors.pivot, opacity: 0.5 },
   tickBottom: {

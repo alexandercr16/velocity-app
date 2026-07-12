@@ -3,7 +3,8 @@ import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-
 import * as DocumentPicker from "expo-document-picker";
 import { colors, fonts } from "../theme";
 import { PrimaryButton, GhostButton } from "../components/Buttons";
-import { LibraryIcon, SaveIcon, UploadIcon } from "../components/Icons";
+import { LibraryIcon, UploadIcon } from "../components/Icons";
+import LoadedCard, { ImportKind, KIND_META } from "../components/LoadedCard";
 import { usePdfExtractor } from "../lib/PdfExtractor";
 import {
   buildDocument,
@@ -43,14 +44,19 @@ export default function ImportScreen({
   const [pasteText, setPasteText] = useState("");
   const [urlText, setUrlText] = useState("");
   const [doc, setDoc] = useState<Document | null>(null);
+  const [kind, setKind] = useState<ImportKind>("paste");
+  const [loadToken, setLoadToken] = useState(0);
+  const [pickedFile, setPickedFile] = useState<{ name: string; kind: ImportKind } | null>(null);
   const [status, setStatus] = useState<{ msg: string; isError: boolean }>({ msg: "", isError: false });
   const [busy, setBusy] = useState(false);
   const { extract: extractPdf, node: pdfExtractorNode } = usePdfExtractor();
 
-  function applyDocument(next: Document) {
+  function applyDocument(next: Document, nextKind: ImportKind) {
     setDoc(next);
+    setKind(nextKind);
+    setLoadToken((t) => t + 1);
     onDocumentChange(next);
-    setStatus({ msg: `${next.sourceLabel} · ${next.words.length.toLocaleString()} words`, isError: false });
+    setStatus({ msg: "", isError: false });
   }
 
   function fail(err: unknown) {
@@ -67,7 +73,7 @@ export default function ImportScreen({
       return;
     }
     try {
-      applyDocument(buildDocument(text, "Pasted text"));
+      applyDocument(buildDocument(text, "Pasted text"), "paste");
     } catch (err) {
       setDoc(null);
       onDocumentChange(null);
@@ -79,7 +85,7 @@ export default function ImportScreen({
     setPasteText(SAMPLE_TEXT);
     setTab("paste");
     try {
-      applyDocument(buildDocument(SAMPLE_TEXT, "Sample text", "Alice in Wonderland (sample)"));
+      applyDocument(buildDocument(SAMPLE_TEXT, "Sample text", "Alice in Wonderland (sample)"), "sample");
     } catch (err) {
       fail(err);
     }
@@ -94,16 +100,21 @@ export default function ImportScreen({
     setStatus({ msg: `Reading ${asset.name}…`, isError: false });
     try {
       let next: Document;
+      let fileKind: ImportKind;
       if (name.endsWith(".txt")) {
         next = await readTxtFile(asset.uri, asset.name);
+        fileKind = "txt";
       } else if (name.endsWith(".pdf")) {
         next = await readPdfFile(asset.uri, asset.name, extractPdf);
+        fileKind = "pdf";
       } else if (name.endsWith(".epub")) {
         next = await readEpubFile(asset.uri, asset.name);
+        fileKind = "epub";
       } else {
         throw new ImportError("Unsupported file. Use .txt, .pdf, or .epub.");
       }
-      applyDocument(next);
+      applyDocument(next, fileKind);
+      setPickedFile({ name: asset.name, kind: fileKind });
     } catch (err) {
       fail(err);
     } finally {
@@ -120,7 +131,7 @@ export default function ImportScreen({
     setBusy(true);
     setStatus({ msg: "Trying to fetch that page…", isError: false });
     try {
-      applyDocument(await fetchUrlText(url));
+      applyDocument(await fetchUrlText(url), "url");
     } catch (err) {
       fail(err);
     } finally {
@@ -185,12 +196,31 @@ export default function ImportScreen({
         ) : null}
 
         {tab === "file" ? (
-          <Pressable onPress={handlePickFile} disabled={busy} style={styles.fileDrop}>
-            <View style={styles.fileIconWrap}>
-              <UploadIcon />
-            </View>
-            <Text style={styles.fileTitle}>Choose a file</Text>
-            <Text style={styles.fileHint}>.txt · .pdf · .epub</Text>
+          <Pressable
+            onPress={handlePickFile}
+            disabled={busy}
+            style={[styles.fileDrop, pickedFile && styles.fileDropPicked]}
+          >
+            {pickedFile ? (
+              <View
+                style={[
+                  styles.fileIconWrap,
+                  styles.fileIconWrapPicked,
+                  { backgroundColor: KIND_META[pickedFile.kind].color },
+                ]}
+              >
+                {(() => {
+                  const PickedIcon = KIND_META[pickedFile.kind].Icon;
+                  return <PickedIcon size={20} color="#fff" />;
+                })()}
+              </View>
+            ) : (
+              <View style={styles.fileIconWrap}>
+                <UploadIcon />
+              </View>
+            )}
+            <Text style={styles.fileTitle}>{pickedFile ? pickedFile.name : "Choose a file"}</Text>
+            <Text style={styles.fileHint}>{pickedFile ? "Tap to choose a different file" : ".txt · .pdf · .epub"}</Text>
           </Pressable>
         ) : null}
 
@@ -224,15 +254,14 @@ export default function ImportScreen({
         ) : null}
 
         {doc ? (
-          <Pressable
-            onPress={() => !isSaved && onSaveToLibrary(doc)}
-            style={[styles.saveBtn, isSaved && styles.saveBtnSaved]}
-          >
-            <SaveIcon size={15} color={isSaved ? colors.sub : colors.ink} />
-            <Text style={[styles.saveBtnLabel, isSaved && { color: colors.sub }]}>
-              {isSaved ? "Saved ✓" : "Save to Library"}
-            </Text>
-          </Pressable>
+          <LoadedCard
+            key={loadToken}
+            kind={kind}
+            title={doc.title}
+            wordCount={doc.words.length}
+            isSaved={isSaved}
+            onSave={() => onSaveToLibrary(doc)}
+          />
         ) : null}
       </ScrollView>
 
@@ -355,6 +384,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     backgroundColor: colors.wash,
   },
+  fileDropPicked: {
+    borderStyle: "solid",
+    borderColor: colors.accent,
+    backgroundColor: colors.accentWash,
+  },
   fileIconWrap: {
     width: 46,
     height: 46,
@@ -364,6 +398,9 @@ const styles = StyleSheet.create({
     borderColor: colors.line,
     alignItems: "center",
     justifyContent: "center",
+  },
+  fileIconWrapPicked: {
+    borderWidth: 0,
   },
   fileTitle: { fontFamily: fonts.uiSemibold, fontSize: 15, color: colors.ink },
   fileHint: { fontFamily: fonts.monoMedium, fontSize: 12, color: colors.faint, letterSpacing: 0.4 },
@@ -396,21 +433,6 @@ const styles = StyleSheet.create({
     marginTop: 16,
     minHeight: 16,
   },
-  saveBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    alignSelf: "flex-start",
-    marginTop: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-    borderWidth: 1,
-    borderColor: colors.line,
-    borderRadius: 11,
-    backgroundColor: colors.wash,
-  },
-  saveBtnSaved: { opacity: 0.8 },
-  saveBtnLabel: { fontFamily: fonts.uiSemibold, fontSize: 13, color: colors.ink },
   footer: {
     padding: 24,
     paddingTop: 14,
