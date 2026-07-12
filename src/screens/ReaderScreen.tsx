@@ -203,5 +203,5 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   voicePicker: { width: "100%", color: colors.ink },
-  voicePickerItem: { fontSize: 12.5, color: colors.ink },
+  voicePickerItem: { fontSize: 13, color: colors.ink },
 });
