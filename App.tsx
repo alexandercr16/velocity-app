@@ -62,6 +62,11 @@ export default function App() {
   const [importResetToken, setImportResetToken] = useState(0);
   const settingsLoadedRef = useRef(false);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
+  // Guards against the initial async loadLibrary() resolving *after* the user
+  // has already saved something (e.g. they paste + save within the first
+  // second of launch) — without this, applying the disk snapshot on load
+  // would silently clobber the fresh save back to the pre-launch list.
+  const librarySavedDuringLoadRef = useRef(false);
 
   const engine = useReaderEngine({
     document,
@@ -95,7 +100,13 @@ export default function App() {
         engine.setTtsRate(settings.ttsRate);
       }
       if (session) setResumeSession(session);
-      setLibrary(savedLibrary);
+      setLibrary((current) => {
+        if (!librarySavedDuringLoadRef.current) return savedLibrary;
+        // A save already landed while this load was in flight — merge rather
+        // than overwrite, so neither the fresh save nor older disk entries are lost.
+        const currentIds = new Set(current.map((e) => e.id));
+        return [...savedLibrary.filter((e) => !currentIds.has(e.id)), ...current];
+      });
       settingsLoadedRef.current = true;
       setSettingsLoaded(true);
     })();
@@ -141,23 +152,29 @@ export default function App() {
   }
 
   function handleSaveToLibrary(doc: Document) {
-    if (library.some((e) => e.rawText === doc.rawText)) return;
-    const entry: LibraryEntry = {
-      id: String(Date.now()),
-      title: doc.title.slice(0, 60),
-      rawText: doc.rawText,
-      wordCount: doc.words.length,
-      savedAt: Date.now(),
-    };
-    const next = [...library, entry];
-    setLibrary(next);
-    saveLibrary(next);
+    librarySavedDuringLoadRef.current = true;
+    setLibrary((current) => {
+      if (current.some((e) => e.rawText === doc.rawText)) return current;
+      const entry: LibraryEntry = {
+        id: String(Date.now()),
+        title: doc.title.slice(0, 60),
+        rawText: doc.rawText,
+        wordCount: doc.words.length,
+        savedAt: Date.now(),
+      };
+      const next = [...current, entry];
+      saveLibrary(next);
+      return next;
+    });
   }
 
   function handleDeleteLibraryEntry(id: string) {
-    const next = library.filter((e) => e.id !== id);
-    setLibrary(next);
-    saveLibrary(next);
+    librarySavedDuringLoadRef.current = true;
+    setLibrary((current) => {
+      const next = current.filter((e) => e.id !== id);
+      saveLibrary(next);
+      return next;
+    });
   }
 
   function handleOpenLibraryEntry(entry: LibraryEntry) {
@@ -356,6 +373,7 @@ function Screens({
           onOpenLibrary={onOpenLibraryFromImport}
           isSaved={isSaved}
           onSaveToLibrary={onSaveToLibrary}
+          onNewImport={onNewImport}
         />
       </Animated.View>
 

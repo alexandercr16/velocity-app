@@ -3,7 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-
 import * as DocumentPicker from "expo-document-picker";
 import { colors, fonts } from "../theme";
 import { PrimaryButton, GhostButton } from "../components/Buttons";
-import { LibraryIcon, UploadIcon } from "../components/Icons";
+import { LibraryIcon, PlusIcon, UploadIcon } from "../components/Icons";
 import LoadedCard, { ImportKind, KIND_META } from "../components/LoadedCard";
 import { usePdfExtractor } from "../lib/PdfExtractor";
 import {
@@ -28,6 +28,7 @@ interface Props {
   onOpenLibrary: () => void;
   isSaved: boolean;
   onSaveToLibrary: (doc: Document) => void;
+  onNewImport: () => void;
 }
 
 export default function ImportScreen({
@@ -39,6 +40,7 @@ export default function ImportScreen({
   onOpenLibrary,
   isSaved,
   onSaveToLibrary,
+  onNewImport,
 }: Props) {
   const [tab, setTab] = useState<Tab>("paste");
   const [pasteText, setPasteText] = useState("");
@@ -168,6 +170,9 @@ export default function ImportScreen({
               Veloc<Text style={styles.logoItalic}>i</Text>ty
             </Text>
           </View>
+          <Pressable onPress={onNewImport} style={styles.libraryBtn} hitSlop={4}>
+            <PlusIcon />
+          </Pressable>
           <Pressable onPress={onOpenLibrary} style={styles.libraryBtn} hitSlop={4}>
             <LibraryIcon />
           </Pressable>

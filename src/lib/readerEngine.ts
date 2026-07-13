@@ -5,6 +5,44 @@ import { detectLanguageCode } from "./languageDetect";
 
 const MAX_VOICE_SLOTS = 5;
 
+// Apple's iOS/macOS bundle a set of "novelty" voices (robotic, whispering,
+// singing, etc.) alongside the normal ones. They match the same language
+// codes as real voices, so without excluding them by name they'd get mixed
+// into the curated list and sound garbled/unintelligible.
+const NOVELTY_VOICE_NAMES = new Set(
+  [
+    "Albert",
+    "Bad News",
+    "Bahh",
+    "Bells",
+    "Boing",
+    "Bubbles",
+    "Cellos",
+    "Wobble",
+    "Deranged",
+    "Good News",
+    "Hysterical",
+    "Jester",
+    "Organ",
+    "Superstar",
+    "Trinoids",
+    "Whisper",
+    "Zarvox",
+    "Bruce",
+    "Fred",
+    "Junior",
+    "Ralph",
+    "Kathy",
+    "Princess",
+    "Pipe Organ",
+  ].map((n) => n.toLowerCase())
+);
+
+// Restart TTS at most this often in response to speed/voice changes, so
+// dragging the speed slider (which fires many onValueChange events per
+// second) doesn't flood expo-speech with overlapping stop/speak calls.
+const RESTART_DEBOUNCE_MS = 350;
+
 interface BoundaryEvent {
   charIndex: number;
   charLength: number;
@@ -100,6 +138,7 @@ export function useReaderEngine({ document, initialMode, initialWpm, initialTtsR
 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const restartDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const boundarySupportedRef = useRef(false);
   const persistIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const onProgressRef = useRef(onProgress);
@@ -234,9 +273,24 @@ export function useReaderEngine({ document, initialMode, initialWpm, initialTtsR
     startTTS();
   }, [startTTS]);
 
+  // Coalesces rapid-fire speed/voice changes (e.g. dragging a slider fires
+  // many events per second) into a single restart after things go quiet,
+  // instead of flooding expo-speech with overlapping stop/speak calls.
+  const scheduleRestartTTS = useCallback(() => {
+    if (restartDebounceRef.current) clearTimeout(restartDebounceRef.current);
+    restartDebounceRef.current = setTimeout(() => {
+      restartDebounceRef.current = null;
+      if (isPlayingRef.current && MODE_META[modeRef.current].isTTS) restartTTSFromCurrent();
+    }, RESTART_DEBOUNCE_MS);
+  }, [restartTTSFromCurrent]);
+
   const pause = useCallback(() => {
     ttsGenRef.current++;
     clearTimers();
+    if (restartDebounceRef.current) {
+      clearTimeout(restartDebounceRef.current);
+      restartDebounceRef.current = null;
+    }
     isPlayingRef.current = false;
     setIsPlaying(false);
     if (MODE_META[modeRef.current].isTTS) Speech.stop();
@@ -290,28 +344,31 @@ export function useReaderEngine({ document, initialMode, initialWpm, initialTtsR
     (v: number) => {
       ttsRateRef.current = v;
       setTtsRateState(v);
-      if (isPlayingRef.current && MODE_META[modeRef.current].isTTS) restartTTSFromCurrent();
+      if (isPlayingRef.current && MODE_META[modeRef.current].isTTS) scheduleRestartTTS();
     },
-    [restartTTSFromCurrent]
+    [scheduleRestartTTS]
   );
 
   const setVoice = useCallback(
     (id: string) => {
       selectedVoiceIdRef.current = id;
       setSelectedVoiceId(id);
-      if (isPlayingRef.current && MODE_META[modeRef.current].isTTS) restartTTSFromCurrent();
+      if (isPlayingRef.current && MODE_META[modeRef.current].isTTS) scheduleRestartTTS();
     },
-    [restartTTSFromCurrent]
+    [scheduleRestartTTS]
   );
 
   const loadVoices = useCallback(() => {
     Speech.getAvailableVoicesAsync()
       .then((list) => {
+        const clean = list.filter((v) => !NOVELTY_VOICE_NAMES.has(v.name.trim().toLowerCase()));
+
         const detected = detectLanguageCode(documentRef.current?.rawText || "");
-        const matching = (code: string) => list.filter((v) => v.language.toLowerCase().startsWith(code));
+        const matching = (code: string) => clean.filter((v) => v.language.toLowerCase().startsWith(code));
 
         let pool = matching(detected);
         if (!pool.length) pool = matching("en");
+        if (!pool.length) pool = clean;
         if (!pool.length) pool = list;
 
         const seenNames = new Set<string>();
@@ -340,6 +397,10 @@ export function useReaderEngine({ document, initialMode, initialWpm, initialTtsR
     (startIndex = 0) => {
       ttsGenRef.current++;
       clearTimers();
+      if (restartDebounceRef.current) {
+        clearTimeout(restartDebounceRef.current);
+        restartDebounceRef.current = null;
+      }
       Speech.stop();
       isPlayingRef.current = false;
       setIsPlaying(false);
@@ -369,6 +430,7 @@ export function useReaderEngine({ document, initialMode, initialWpm, initialTtsR
   useEffect(() => {
     return () => {
       clearTimers();
+      if (restartDebounceRef.current) clearTimeout(restartDebounceRef.current);
       Speech.stop();
     };
   }, [clearTimers]);
