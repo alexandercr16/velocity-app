@@ -54,6 +54,12 @@ export default function App() {
   const [library, setLibrary] = useState<LibraryEntry[]>([]);
   const [resumeSession, setResumeSession] = useState<LastSession | null>(null);
   const [pendingEnterIndex, setPendingEnterIndex] = useState<number | null>(null);
+  // Where "Back" from Library should return to — it can be opened from either
+  // the Import screen or the Mode screen now.
+  const [libraryReturnScreen, setLibraryReturnScreen] = useState<"import" | "mode">("import");
+  // Bumped to force-remount ImportScreen with a blank slate (the "+" button),
+  // since its paste/file/URL state otherwise persists across screen switches.
+  const [importResetToken, setImportResetToken] = useState(0);
   const settingsLoadedRef = useRef(false);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
 
@@ -159,6 +165,12 @@ export default function App() {
     setScreen("mode");
   }
 
+  function handleNewImport() {
+    setDocument(null);
+    setImportResetToken((t) => t + 1);
+    setScreen("import");
+  }
+
   const isSaved = !!document && library.some((e) => e.rawText === document.rawText);
 
   if (!fontsLoaded) return null;
@@ -175,6 +187,7 @@ export default function App() {
           authMode={authMode}
           library={library}
           isSaved={isSaved}
+          importResetToken={importResetToken}
           onDocumentChange={setDocument}
           onContinue={() => document && setScreen("mode")}
           onResume={handleResume}
@@ -198,11 +211,19 @@ export default function App() {
           onAuthBack={() => setScreen("home")}
           onToggleAuthMode={() => setAuthMode((m) => (m === "signup" ? "login" : "signup"))}
           onAuthSubmit={() => setScreen("import")}
-          onOpenLibrary={() => setScreen("library")}
-          onBackFromLibrary={() => setScreen("import")}
+          onOpenLibraryFromImport={() => {
+            setLibraryReturnScreen("import");
+            setScreen("library");
+          }}
+          onOpenLibraryFromMode={() => {
+            setLibraryReturnScreen("mode");
+            setScreen("library");
+          }}
+          onBackFromLibrary={() => setScreen(libraryReturnScreen)}
           onOpenLibraryEntry={handleOpenLibraryEntry}
           onDeleteLibraryEntry={handleDeleteLibraryEntry}
           onSaveToLibrary={handleSaveToLibrary}
+          onNewImport={handleNewImport}
         />
       </SafeAreaView>
     </SafeAreaProvider>
@@ -217,6 +238,7 @@ interface ScreensProps {
   authMode: AuthMode;
   library: LibraryEntry[];
   isSaved: boolean;
+  importResetToken: number;
   onDocumentChange: (doc: Document | null) => void;
   onContinue: () => void;
   onResume: () => void;
@@ -231,11 +253,13 @@ interface ScreensProps {
   onAuthBack: () => void;
   onToggleAuthMode: () => void;
   onAuthSubmit: () => void;
-  onOpenLibrary: () => void;
+  onOpenLibraryFromImport: () => void;
+  onOpenLibraryFromMode: () => void;
   onBackFromLibrary: () => void;
   onOpenLibraryEntry: (entry: LibraryEntry) => void;
   onDeleteLibraryEntry: (id: string) => void;
   onSaveToLibrary: (doc: Document) => void;
+  onNewImport: () => void;
 }
 
 function Screens({
@@ -246,6 +270,7 @@ function Screens({
   authMode,
   library,
   isSaved,
+  importResetToken,
   onDocumentChange,
   onContinue,
   onResume,
@@ -260,11 +285,13 @@ function Screens({
   onAuthBack,
   onToggleAuthMode,
   onAuthSubmit,
-  onOpenLibrary,
+  onOpenLibraryFromImport,
+  onOpenLibraryFromMode,
   onBackFromLibrary,
   onOpenLibraryEntry,
   onDeleteLibraryEntry,
   onSaveToLibrary,
+  onNewImport,
 }: ScreensProps) {
   const width = Dimensions.get("window").width;
   const anims = useRef({
@@ -320,12 +347,13 @@ function Screens({
         pointerEvents={screen === "import" ? "auto" : "none"}
       >
         <ImportScreen
+          key={importResetToken}
           onDocumentChange={onDocumentChange}
           onContinue={onContinue}
           resumeSession={resumeSession}
           onResume={onResume}
           onDismissResume={onDismissResume}
-          onOpenLibrary={onOpenLibrary}
+          onOpenLibrary={onOpenLibraryFromImport}
           isSaved={isSaved}
           onSaveToLibrary={onSaveToLibrary}
         />
@@ -357,6 +385,8 @@ function Screens({
           onChangeTtsRate={engine.setTtsRate}
           onBack={onBackToImport}
           onStart={onStart}
+          onNewImport={onNewImport}
+          onOpenLibrary={onOpenLibraryFromMode}
         />
       </Animated.View>
 

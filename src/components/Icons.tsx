@@ -14,6 +14,14 @@ export function ChevronLeftIcon({ size = 18, color = "#191B20" }: IconProps) {
   );
 }
 
+export function PlusIcon({ size = 18, color = "#191B20" }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M12 5v14M5 12h14" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+  );
+}
+
 export function UploadIcon({ size = 20, color = "#4B4EDB" }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">

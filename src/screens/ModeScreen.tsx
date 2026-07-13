@@ -2,7 +2,7 @@ import React from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import Slider from "@react-native-community/slider";
 import { colors, fonts } from "../theme";
-import { ChevronLeftIcon, GuidedPaceGlyph, ReadAloudGlyph, SprintGlyph } from "../components/Icons";
+import { ChevronLeftIcon, GuidedPaceGlyph, LibraryIcon, PlusIcon, ReadAloudGlyph, SprintGlyph } from "../components/Icons";
 import ModeCard from "../components/ModeCard";
 import { PrimaryButton } from "../components/Buttons";
 import { MODE_META, formatDuration } from "../lib/readerEngine";
@@ -18,6 +18,8 @@ interface Props {
   onChangeTtsRate: (v: number) => void;
   onBack: () => void;
   onStart: () => void;
+  onNewImport: () => void;
+  onOpenLibrary: () => void;
 }
 
 export default function ModeScreen({
@@ -30,6 +32,8 @@ export default function ModeScreen({
   onChangeTtsRate,
   onBack,
   onStart,
+  onNewImport,
+  onOpenLibrary,
 }: Props) {
   const meta = MODE_META[mode];
   const wordCount = document?.words.length ?? 0;
@@ -43,10 +47,16 @@ export default function ModeScreen({
           <Pressable onPress={onBack} style={styles.backBtn}>
             <ChevronLeftIcon />
           </Pressable>
-          <View style={{ minWidth: 0 }}>
+          <View style={{ minWidth: 0, flex: 1 }}>
             <Text style={styles.headerTitle}>Choose how to read</Text>
             <Text style={styles.headerMeta}>{wordCount ? `${wordCount.toLocaleString()} words loaded` : "—"}</Text>
           </View>
+          <Pressable onPress={onNewImport} style={styles.headerIconBtn} hitSlop={4}>
+            <PlusIcon />
+          </Pressable>
+          <Pressable onPress={onOpenLibrary} style={styles.headerIconBtn} hitSlop={4}>
+            <LibraryIcon size={18} />
+          </Pressable>
         </View>
 
         <View style={styles.cards}>
@@ -123,6 +133,16 @@ const styles = StyleSheet.create({
     borderColor: colors.line,
     alignItems: "center",
     justifyContent: "center",
+  },
+  headerIconBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 11,
+    borderWidth: 1,
+    borderColor: colors.line,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
   },
   headerTitle: { fontFamily: fonts.uiSemibold, fontSize: 16, color: colors.ink, lineHeight: 18 },
   headerMeta: { fontFamily: fonts.monoMedium, fontSize: 11.5, color: colors.faint, marginTop: 2 },
