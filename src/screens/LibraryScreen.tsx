@@ -31,7 +31,7 @@ function timeAgo(ts: number): string {
 }
 
 export default function LibraryScreen({ entries, onOpen, onDelete, onBack }: Props) {
-  const ordered = [...entries].reverse();
+  const ordered = [...entries].sort((a, b) => (b.lastOpenedAt ?? b.savedAt) - (a.lastOpenedAt ?? a.savedAt));
 
   return (
     <View style={styles.screen}>
@@ -70,7 +70,7 @@ export default function LibraryScreen({ entries, onOpen, onDelete, onBack }: Pro
                   {entry.title}
                 </Text>
                 <Text style={styles.cardMeta}>
-                  {entry.wordCount.toLocaleString()} words · {timeAgo(entry.savedAt)}
+                  {entry.wordCount.toLocaleString()} words · {timeAgo(entry.lastOpenedAt ?? entry.savedAt)}
                 </Text>
               </Pressable>
             ))}

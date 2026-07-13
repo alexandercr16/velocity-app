@@ -21,16 +21,8 @@ import ReaderScreen from "./src/screens/ReaderScreen";
 import { colors } from "./src/theme";
 import { buildDocument } from "./src/lib/textIngestion";
 import { MODE_META, useReaderEngine } from "./src/lib/readerEngine";
-import {
-  clearLastSession,
-  loadLastSession,
-  loadLibrary,
-  loadSettings,
-  saveLastSession,
-  saveLibrary,
-  saveSettings,
-} from "./src/lib/storage";
-import { Document, LastSession, LibraryEntry, Mode } from "./src/types";
+import { loadLibrary, loadSettings, saveLibrary, saveSettings } from "./src/lib/storage";
+import { Document, LibraryEntry, Mode } from "./src/types";
 
 type Screen = "home" | "auth" | "import" | "library" | "mode" | "reader";
 const SCREEN_ORDER: Record<Screen, number> = { home: 0, auth: 1, import: 2, library: 2, mode: 3, reader: 4 };
@@ -52,11 +44,13 @@ export default function App() {
   const [authMode, setAuthMode] = useState<AuthMode>("login");
   const [document, setDocument] = useState<Document | null>(null);
   const [library, setLibrary] = useState<LibraryEntry[]>([]);
-  const [resumeSession, setResumeSession] = useState<LastSession | null>(null);
   const [pendingEnterIndex, setPendingEnterIndex] = useState<number | null>(null);
   // Where "Back" from Library should return to — it can be opened from either
   // the Import screen or the Mode screen now.
   const [libraryReturnScreen, setLibraryReturnScreen] = useState<"import" | "mode">("import");
+  // Where "Back" from Reader should return to — the normal Mode-select flow,
+  // or straight back to Library when a saved text was opened directly.
+  const [readerReturnScreen, setReaderReturnScreen] = useState<"mode" | "library">("mode");
   // Bumped to force-remount ImportScreen with a blank slate (the "+" button),
   // since its paste/file/URL state otherwise persists across screen switches.
   const [importResetToken, setImportResetToken] = useState(0);
@@ -73,33 +67,32 @@ export default function App() {
     initialMode: "beginner",
     initialWpm: 300,
     initialTtsRate: 1,
+    // Persists progress into the matching library entry (by rawText) so each
+    // saved text remembers its own position — texts that were never saved
+    // have nothing to persist into, which is fine, they're one-off reads.
     onProgress: (idx) => {
       if (!document) return;
-      if (idx >= document.words.length - 1) {
-        clearLastSession();
-        return;
-      }
-      saveLastSession({
-        document,
-        mode: engine.mode,
-        wpm: engine.wpm,
-        ttsRate: engine.ttsRate,
-        currentIndex: idx,
-        savedAt: Date.now(),
+      librarySavedDuringLoadRef.current = true;
+      setLibrary((current) => {
+        const i = current.findIndex((e) => e.rawText === document.rawText);
+        if (i === -1) return current;
+        const next = [...current];
+        next[i] = { ...next[i], lastIndex: idx, lastMode: engine.mode, lastWpm: engine.wpm, lastTtsRate: engine.ttsRate };
+        saveLibrary(next);
+        return next;
       });
     },
   });
 
-  // Load persisted settings + any in-progress session + the saved library once on launch.
+  // Load persisted settings + the saved library once on launch.
   useEffect(() => {
     (async () => {
-      const [settings, session, savedLibrary] = await Promise.all([loadSettings(), loadLastSession(), loadLibrary()]);
+      const [settings, savedLibrary] = await Promise.all([loadSettings(), loadLibrary()]);
       if (settings) {
         engine.setMode(settings.mode);
         engine.setWpm(settings.wpm);
         engine.setTtsRate(settings.ttsRate);
       }
-      if (session) setResumeSession(session);
       setLibrary((current) => {
         if (!librarySavedDuringLoadRef.current) return savedLibrary;
         // A save already landed while this load was in flight — merge rather
@@ -119,8 +112,9 @@ export default function App() {
     saveSettings({ mode: engine.mode, wpm: engine.wpm, ttsRate: engine.ttsRate });
   }, [settingsLoaded, engine.mode, engine.wpm, engine.ttsRate]);
 
-  // Resolves a resume request once `document` has actually propagated into
-  // the engine (avoids entering the chamber before word bounds are known).
+  // Resolves an "open at saved position" request once `document` has actually
+  // propagated into the engine (avoids entering the chamber before word
+  // bounds are known).
   useEffect(() => {
     if (pendingEnterIndex !== null && document && document.words.length) {
       engine.enter(Math.min(pendingEnterIndex, document.words.length - 1));
@@ -137,18 +131,8 @@ export default function App() {
 
   function handleStart() {
     engine.enter(0);
+    setReaderReturnScreen("mode");
     setScreen("reader");
-  }
-
-  function handleResume() {
-    if (!resumeSession) return;
-    setDocument(resumeSession.document);
-    engine.setMode(resumeSession.mode);
-    engine.setWpm(resumeSession.wpm);
-    engine.setTtsRate(resumeSession.ttsRate);
-    setPendingEnterIndex(resumeSession.currentIndex);
-    setScreen("reader");
-    setResumeSession(null);
   }
 
   function handleSaveToLibrary(doc: Document) {
@@ -161,6 +145,11 @@ export default function App() {
         rawText: doc.rawText,
         wordCount: doc.words.length,
         savedAt: Date.now(),
+        lastOpenedAt: Date.now(),
+        lastIndex: 0,
+        lastMode: engine.mode,
+        lastWpm: engine.wpm,
+        lastTtsRate: engine.ttsRate,
       };
       const next = [...current, entry];
       saveLibrary(next);
@@ -179,7 +168,18 @@ export default function App() {
 
   function handleOpenLibraryEntry(entry: LibraryEntry) {
     setDocument(buildDocument(entry.rawText, entry.title, entry.title));
-    setScreen("mode");
+    engine.setMode(entry.lastMode ?? "beginner");
+    engine.setWpm(entry.lastWpm ?? MODE_META.medium.default);
+    engine.setTtsRate(entry.lastTtsRate ?? 1);
+    librarySavedDuringLoadRef.current = true;
+    setLibrary((current) => {
+      const next = current.map((e) => (e.id === entry.id ? { ...e, lastOpenedAt: Date.now() } : e));
+      saveLibrary(next);
+      return next;
+    });
+    setPendingEnterIndex(entry.lastIndex ?? 0);
+    setReaderReturnScreen("library");
+    setScreen("reader");
   }
 
   function handleNewImport() {
@@ -200,21 +200,18 @@ export default function App() {
           screen={screen}
           document={document}
           engine={engine}
-          resumeSession={resumeSession}
           authMode={authMode}
           library={library}
           isSaved={isSaved}
           importResetToken={importResetToken}
           onDocumentChange={setDocument}
           onContinue={() => document && setScreen("mode")}
-          onResume={handleResume}
-          onDismissResume={() => setResumeSession(null)}
           onSelectMode={handleSelectMode}
           onBackToImport={() => setScreen("import")}
           onStart={handleStart}
           onExitReader={() => {
             engine.exit();
-            setScreen("mode");
+            setScreen(readerReturnScreen);
           }}
           onLogin={() => {
             setAuthMode("login");
@@ -251,15 +248,12 @@ interface ScreensProps {
   screen: Screen;
   document: Document | null;
   engine: ReturnType<typeof useReaderEngine>;
-  resumeSession: LastSession | null;
   authMode: AuthMode;
   library: LibraryEntry[];
   isSaved: boolean;
   importResetToken: number;
   onDocumentChange: (doc: Document | null) => void;
   onContinue: () => void;
-  onResume: () => void;
-  onDismissResume: () => void;
   onSelectMode: (m: Mode) => void;
   onBackToImport: () => void;
   onStart: () => void;
@@ -283,15 +277,12 @@ function Screens({
   screen,
   document,
   engine,
-  resumeSession,
   authMode,
   library,
   isSaved,
   importResetToken,
   onDocumentChange,
   onContinue,
-  onResume,
-  onDismissResume,
   onSelectMode,
   onBackToImport,
   onStart,
@@ -367,9 +358,6 @@ function Screens({
           key={importResetToken}
           onDocumentChange={onDocumentChange}
           onContinue={onContinue}
-          resumeSession={resumeSession}
-          onResume={onResume}
-          onDismissResume={onDismissResume}
           onOpenLibrary={onOpenLibraryFromImport}
           isSaved={isSaved}
           onSaveToLibrary={onSaveToLibrary}

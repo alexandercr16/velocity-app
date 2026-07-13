@@ -24,19 +24,17 @@ export interface LibraryEntry {
   rawText: string;
   wordCount: number;
   savedAt: number;
+  // Per-text reading progress — optional since entries saved before this
+  // feature existed won't have them yet.
+  lastOpenedAt?: number;
+  lastIndex?: number;
+  lastMode?: Mode;
+  lastWpm?: number;
+  lastTtsRate?: number;
 }
 
 export interface Settings {
   mode: Mode;
   wpm: number;
   ttsRate: number;
-}
-
-export interface LastSession {
-  document: Document;
-  mode: Mode;
-  wpm: number;
-  ttsRate: number;
-  currentIndex: number;
-  savedAt: number;
 }

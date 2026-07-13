@@ -371,16 +371,18 @@ export function useReaderEngine({ document, initialMode, initialWpm, initialTtsR
         if (!pool.length) pool = clean;
         if (!pool.length) pool = list;
 
+        // The default/"Compact" quality tier sounds noticeably robotic —
+        // only fall back to it if this language has no Enhanced voice at all.
+        const enhanced = pool.filter((v) => v.quality === "Enhanced");
+        if (enhanced.length) pool = enhanced;
+
         const seenNames = new Set<string>();
         const deduped = pool.filter((v) => {
           if (seenNames.has(v.name)) return false;
           seenNames.add(v.name);
           return true;
         });
-        deduped.sort((a, b) => {
-          if (a.quality !== b.quality) return a.quality === "Enhanced" ? -1 : 1;
-          return a.name.localeCompare(b.name);
-        });
+        deduped.sort((a, b) => a.name.localeCompare(b.name));
         const picked = deduped.slice(0, MAX_VOICE_SLOTS);
 
         const opts = picked.map((v, i) => ({ identifier: v.identifier, label: `Voice ${i + 1} · ${v.name}` }));

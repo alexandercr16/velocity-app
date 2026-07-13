@@ -15,16 +15,13 @@ import {
   readTxtFile,
   SAMPLE_TEXT,
 } from "../lib/textIngestion";
-import { Document, LastSession } from "../types";
+import { Document } from "../types";
 
 type Tab = "paste" | "file" | "url";
 
 interface Props {
   onDocumentChange: (doc: Document | null) => void;
   onContinue: () => void;
-  resumeSession: LastSession | null;
-  onResume: () => void;
-  onDismissResume: () => void;
   onOpenLibrary: () => void;
   isSaved: boolean;
   onSaveToLibrary: (doc: Document) => void;
@@ -34,9 +31,6 @@ interface Props {
 export default function ImportScreen({
   onDocumentChange,
   onContinue,
-  resumeSession,
-  onResume,
-  onDismissResume,
   onOpenLibrary,
   isSaved,
   onSaveToLibrary,
@@ -145,24 +139,6 @@ export default function ImportScreen({
     <View style={styles.screen}>
       {pdfExtractorNode}
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
-        {resumeSession ? (
-          <View style={styles.resumeBanner}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.resumeTitle}>Resume where you left off</Text>
-              <Text style={styles.resumeSubtitle}>
-                {resumeSession.document.sourceLabel} · word {resumeSession.currentIndex + 1} of{" "}
-                {resumeSession.document.words.length.toLocaleString()}
-              </Text>
-            </View>
-            <Pressable onPress={onResume} style={styles.resumeAction}>
-              <Text style={styles.resumeActionLabel}>Resume</Text>
-            </Pressable>
-            <Pressable onPress={onDismissResume} hitSlop={8}>
-              <Text style={styles.resumeDismiss}>✕</Text>
-            </Pressable>
-          </View>
-        ) : null}
-
         <View style={styles.headerRow}>
           <View style={{ flex: 1 }}>
             <Text style={styles.eyebrow}>Read faster</Text>
@@ -281,25 +257,6 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.screen },
   scroll: { flex: 1 },
   scrollContent: { padding: 24, paddingBottom: 8 },
-  resumeBanner: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    backgroundColor: colors.accentWash,
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 20,
-  },
-  resumeTitle: { fontFamily: fonts.uiSemibold, fontSize: 13.5, color: colors.ink },
-  resumeSubtitle: { fontFamily: fonts.mono, fontSize: 11.5, color: colors.sub, marginTop: 2 },
-  resumeAction: {
-    backgroundColor: colors.accent,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  resumeActionLabel: { fontFamily: fonts.uiSemibold, fontSize: 12.5, color: "#fff" },
-  resumeDismiss: { fontFamily: fonts.ui, fontSize: 15, color: colors.faint, paddingHorizontal: 2 },
   headerRow: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
   libraryBtn: {
     width: 44,
