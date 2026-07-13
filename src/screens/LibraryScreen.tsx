@@ -9,6 +9,8 @@ interface Props {
   onOpen: (entry: LibraryEntry) => void;
   onDelete: (id: string) => void;
   onBack: () => void;
+  isLoggedIn: boolean;
+  onLogout: () => void;
 }
 
 const COVER_COLORS = ["#4B4EDB", "#E2623C", "#1F8A5B", "#B8862F", "#9B4FDB", "#2E93A8"];
@@ -30,7 +32,7 @@ function timeAgo(ts: number): string {
   return `${d}d ago`;
 }
 
-export default function LibraryScreen({ entries, onOpen, onDelete, onBack }: Props) {
+export default function LibraryScreen({ entries, onOpen, onDelete, onBack, isLoggedIn, onLogout }: Props) {
   const ordered = [...entries].sort((a, b) => (b.lastOpenedAt ?? b.savedAt) - (a.lastOpenedAt ?? a.savedAt));
 
   return (
@@ -40,7 +42,12 @@ export default function LibraryScreen({ entries, onOpen, onDelete, onBack }: Pro
           <Pressable onPress={onBack} style={styles.backBtn}>
             <ChevronLeftIcon />
           </Pressable>
-          <Text style={styles.headerTitle}>My Library</Text>
+          <Text style={[styles.headerTitle, { flex: 1 }]}>My Library</Text>
+          {isLoggedIn ? (
+            <Pressable onPress={onLogout} hitSlop={8}>
+              <Text style={styles.logoutLabel}>Log out</Text>
+            </Pressable>
+          ) : null}
         </View>
 
         {ordered.length === 0 ? (
@@ -96,6 +103,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   headerTitle: { fontFamily: fonts.uiSemibold, fontSize: 17, color: colors.ink },
+  logoutLabel: { fontFamily: fonts.uiSemibold, fontSize: 13, color: colors.sub },
   empty: { alignItems: "center", paddingVertical: 60, paddingHorizontal: 20 },
   emptyTitle: { fontFamily: fonts.uiSemibold, fontSize: 14.5, color: colors.sub, marginTop: 14, marginBottom: 4 },
   emptySubtitle: { fontFamily: fonts.ui, fontSize: 13, color: colors.faint, textAlign: "center", maxWidth: 200 },

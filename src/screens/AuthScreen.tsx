@@ -3,6 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-
 import { colors, fonts } from "../theme";
 import { ChevronLeftIcon } from "../components/Icons";
 import { PrimaryButton } from "../components/Buttons";
+import { AuthError, logIn, signUp } from "../lib/authService";
 
 export type AuthMode = "login" | "signup";
 
@@ -10,7 +11,7 @@ interface Props {
   mode: AuthMode;
   onToggleMode: () => void;
   onBack: () => void;
-  onSubmit: () => void;
+  onAuthenticated: () => void;
 }
 
 const COPY: Record<AuthMode, { title: string; subtitle: string; toggle: string; submit: string }> = {
@@ -28,10 +29,30 @@ const COPY: Record<AuthMode, { title: string; subtitle: string; toggle: string; 
   },
 };
 
-export default function AuthScreen({ mode, onToggleMode, onBack, onSubmit }: Props) {
+export default function AuthScreen({ mode, onToggleMode, onBack, onAuthenticated }: Props) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
   const copy = COPY[mode];
+
+  async function handleSubmit() {
+    if (!email.trim() || !password) {
+      setError("Enter an email and password.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      if (mode === "signup") await signUp(email, password);
+      else await logIn(email, password);
+      onAuthenticated();
+    } catch (err) {
+      setError(err instanceof AuthError ? err.message : "Something went wrong — try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <View style={styles.screen}>
@@ -50,6 +71,7 @@ export default function AuthScreen({ mode, onToggleMode, onBack, onSubmit }: Pro
             autoCapitalize="none"
             autoCorrect={false}
             keyboardType="email-address"
+            editable={!busy}
             style={styles.input}
           />
           <TextInput
@@ -58,15 +80,17 @@ export default function AuthScreen({ mode, onToggleMode, onBack, onSubmit }: Pro
             placeholder="Password"
             placeholderTextColor={colors.faint}
             secureTextEntry
+            editable={!busy}
             style={styles.input}
           />
         </View>
-        <Pressable onPress={onToggleMode} style={styles.toggleBtn}>
+        {error ? <Text style={styles.errorText}>{error}</Text> : null}
+        <Pressable onPress={onToggleMode} disabled={busy} style={styles.toggleBtn}>
           <Text style={styles.toggleLabel}>{copy.toggle}</Text>
         </Pressable>
       </ScrollView>
       <View style={styles.footer}>
-        <PrimaryButton label={copy.submit} onPress={onSubmit} />
+        <PrimaryButton label={copy.submit} onPress={handleSubmit} loading={busy} disabled={busy} />
       </View>
     </View>
   );
@@ -101,6 +125,7 @@ const styles = StyleSheet.create({
     borderRadius: 13,
     backgroundColor: colors.wash,
   },
+  errorText: { fontFamily: fonts.ui, fontSize: 13, color: colors.pivot, marginTop: 12 },
   toggleBtn: { marginTop: 16, paddingVertical: 2 },
   toggleLabel: { fontFamily: fonts.uiSemibold, fontSize: 13.5, color: colors.accent },
   footer: {

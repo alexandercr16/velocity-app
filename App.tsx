@@ -22,6 +22,8 @@ import { colors } from "./src/theme";
 import { buildDocument } from "./src/lib/textIngestion";
 import { MODE_META, useReaderEngine } from "./src/lib/readerEngine";
 import { loadLibrary, loadSettings, saveLibrary, saveSettings } from "./src/lib/storage";
+import { logOut, subscribeToAuthChanges, type User } from "./src/lib/authService";
+import { fetchCloudLibrary, mergeLibraries, pushCloudLibrary } from "./src/lib/cloudLibrary";
 import { Document, LibraryEntry, Mode } from "./src/types";
 
 type Screen = "home" | "auth" | "import" | "library" | "mode" | "reader";
@@ -61,6 +63,19 @@ export default function App() {
   // second of launch) — without this, applying the disk snapshot on load
   // would silently clobber the fresh save back to the pre-launch list.
   const librarySavedDuringLoadRef = useRef(false);
+  const [user, setUser] = useState<User | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
+  // Tracks which uid we've already merged the cloud library for this session,
+  // so logging out and back in as the same user re-syncs, but re-renders don't
+  // repeat the merge over and over.
+  const cloudSyncedForUidRef = useRef<string | null>(null);
+
+  // Saves locally always, and additionally to the user's cloud library when
+  // logged in — guest/local-only usage is untouched.
+  function persistLibrary(next: LibraryEntry[]) {
+    saveLibrary(next);
+    if (user) pushCloudLibrary(user.uid, next);
+  }
 
   const engine = useReaderEngine({
     document,
@@ -78,7 +93,7 @@ export default function App() {
         if (i === -1) return current;
         const next = [...current];
         next[i] = { ...next[i], lastIndex: idx, lastMode: engine.mode, lastWpm: engine.wpm, lastTtsRate: engine.ttsRate };
-        saveLibrary(next);
+        persistLibrary(next);
         return next;
       });
     },
@@ -123,6 +138,55 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingEnterIndex, document]);
 
+  // Firebase restores a persisted session automatically, so this fires once
+  // shortly after launch (with the saved user, if any) and again on any
+  // future login/logout.
+  useEffect(() => {
+    const unsubscribe = subscribeToAuthChanges((u) => {
+      setUser(u);
+      setAuthChecked(true);
+    });
+    return unsubscribe;
+  }, []);
+
+  // Once both the local disk load and the auth check have settled, reconcile
+  // this device's library with the logged-in user's cloud copy. Waiting for
+  // settingsLoaded avoids racing the initial local-load effect above.
+  useEffect(() => {
+    if (!settingsLoaded || !authChecked) return;
+    if (!user) {
+      cloudSyncedForUidRef.current = null;
+      return;
+    }
+    if (cloudSyncedForUidRef.current === user.uid) return;
+    cloudSyncedForUidRef.current = user.uid;
+    (async () => {
+      const cloud = await fetchCloudLibrary(user.uid);
+      librarySavedDuringLoadRef.current = true;
+      setLibrary((current) => {
+        const merged = mergeLibraries(current, cloud);
+        saveLibrary(merged);
+        pushCloudLibrary(user.uid, merged);
+        return merged;
+      });
+    })();
+  }, [settingsLoaded, authChecked, user]);
+
+  // A returning user with a persisted session shouldn't have to click through
+  // the login/signup/guest choice again on every launch.
+  useEffect(() => {
+    if (authChecked && user && screen === "home") setScreen("import");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authChecked, user]);
+
+  function handleLogout() {
+    logOut();
+    cloudSyncedForUidRef.current = null;
+    setLibrary([]);
+    saveLibrary([]);
+    setScreen("home");
+  }
+
   function handleSelectMode(m: Mode) {
     engine.setMode(m);
     const meta = MODE_META[m];
@@ -152,7 +216,7 @@ export default function App() {
         lastTtsRate: engine.ttsRate,
       };
       const next = [...current, entry];
-      saveLibrary(next);
+      persistLibrary(next);
       return next;
     });
   }
@@ -161,7 +225,7 @@ export default function App() {
     librarySavedDuringLoadRef.current = true;
     setLibrary((current) => {
       const next = current.filter((e) => e.id !== id);
-      saveLibrary(next);
+      persistLibrary(next);
       return next;
     });
   }
@@ -174,7 +238,7 @@ export default function App() {
     librarySavedDuringLoadRef.current = true;
     setLibrary((current) => {
       const next = current.map((e) => (e.id === entry.id ? { ...e, lastOpenedAt: Date.now() } : e));
-      saveLibrary(next);
+      persistLibrary(next);
       return next;
     });
     setPendingEnterIndex(entry.lastIndex ?? 0);
@@ -190,7 +254,7 @@ export default function App() {
 
   const isSaved = !!document && library.some((e) => e.rawText === document.rawText);
 
-  if (!fontsLoaded) return null;
+  if (!fontsLoaded || !authChecked) return null;
 
   return (
     <SafeAreaProvider>
@@ -203,6 +267,7 @@ export default function App() {
           authMode={authMode}
           library={library}
           isSaved={isSaved}
+          isLoggedIn={!!user}
           importResetToken={importResetToken}
           onDocumentChange={setDocument}
           onContinue={() => document && setScreen("mode")}
@@ -224,7 +289,7 @@ export default function App() {
           onGuest={() => setScreen("import")}
           onAuthBack={() => setScreen("home")}
           onToggleAuthMode={() => setAuthMode((m) => (m === "signup" ? "login" : "signup"))}
-          onAuthSubmit={() => setScreen("import")}
+          onAuthenticated={() => setScreen("import")}
           onOpenLibraryFromImport={() => {
             setLibraryReturnScreen("import");
             setScreen("library");
@@ -238,6 +303,7 @@ export default function App() {
           onDeleteLibraryEntry={handleDeleteLibraryEntry}
           onSaveToLibrary={handleSaveToLibrary}
           onNewImport={handleNewImport}
+          onLogout={handleLogout}
         />
       </SafeAreaView>
     </SafeAreaProvider>
@@ -251,6 +317,7 @@ interface ScreensProps {
   authMode: AuthMode;
   library: LibraryEntry[];
   isSaved: boolean;
+  isLoggedIn: boolean;
   importResetToken: number;
   onDocumentChange: (doc: Document | null) => void;
   onContinue: () => void;
@@ -263,7 +330,7 @@ interface ScreensProps {
   onGuest: () => void;
   onAuthBack: () => void;
   onToggleAuthMode: () => void;
-  onAuthSubmit: () => void;
+  onAuthenticated: () => void;
   onOpenLibraryFromImport: () => void;
   onOpenLibraryFromMode: () => void;
   onBackFromLibrary: () => void;
@@ -271,6 +338,7 @@ interface ScreensProps {
   onDeleteLibraryEntry: (id: string) => void;
   onSaveToLibrary: (doc: Document) => void;
   onNewImport: () => void;
+  onLogout: () => void;
 }
 
 function Screens({
@@ -280,6 +348,7 @@ function Screens({
   authMode,
   library,
   isSaved,
+  isLoggedIn,
   importResetToken,
   onDocumentChange,
   onContinue,
@@ -292,7 +361,7 @@ function Screens({
   onGuest,
   onAuthBack,
   onToggleAuthMode,
-  onAuthSubmit,
+  onAuthenticated,
   onOpenLibraryFromImport,
   onOpenLibraryFromMode,
   onBackFromLibrary,
@@ -300,6 +369,7 @@ function Screens({
   onDeleteLibraryEntry,
   onSaveToLibrary,
   onNewImport,
+  onLogout,
 }: ScreensProps) {
   const width = Dimensions.get("window").width;
   const anims = useRef({
@@ -347,7 +417,7 @@ function Screens({
         style={[styles.layer, { transform: [{ translateX: anims.auth.x }], opacity: anims.auth.o }]}
         pointerEvents={screen === "auth" ? "auto" : "none"}
       >
-        <AuthScreen mode={authMode} onToggleMode={onToggleAuthMode} onBack={onAuthBack} onSubmit={onAuthSubmit} />
+        <AuthScreen mode={authMode} onToggleMode={onToggleAuthMode} onBack={onAuthBack} onAuthenticated={onAuthenticated} />
       </Animated.View>
 
       <Animated.View
@@ -374,6 +444,8 @@ function Screens({
           onOpen={onOpenLibraryEntry}
           onDelete={onDeleteLibraryEntry}
           onBack={onBackFromLibrary}
+          isLoggedIn={isLoggedIn}
+          onLogout={onLogout}
         />
       </Animated.View>
 
