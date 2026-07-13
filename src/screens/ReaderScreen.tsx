@@ -1,5 +1,5 @@
 import React from "react";
-import { Linking, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import Slider from "@react-native-community/slider";
 import { Picker } from "@react-native-picker/picker";
 import { colors, fonts } from "../theme";
@@ -126,18 +126,6 @@ export default function ReaderScreen({ engine, paragraphs, onBack }: Props) {
             </Picker>
           </View>
         ) : null}
-
-        {mode === "beginner" ? (
-          <Pressable onPress={() => Linking.openSettings()} style={styles.moreVoicesLink}>
-            <Text style={styles.moreVoicesText}>
-              Want more voices?{" "}
-              <Text style={styles.moreVoicesAccent}>Open Settings</Text>
-              {Platform.OS === "ios"
-                ? " → Accessibility → Spoken Content → Voices, pick your language, and download an Enhanced voice."
-                : " → Accessibility → Text-to-speech output, and install voice data for your language."}
-            </Text>
-          </Pressable>
-        ) : null}
       </View>
     </View>
   );
@@ -220,7 +208,4 @@ const styles = StyleSheet.create({
   },
   voicePicker: { width: "100%", color: colors.ink },
   voicePickerItem: { fontSize: 13, color: colors.ink },
-  moreVoicesLink: { marginTop: 12, paddingHorizontal: 4 },
-  moreVoicesText: { fontFamily: fonts.ui, fontSize: 11.5, lineHeight: 16, color: colors.faint, textAlign: "center" },
-  moreVoicesAccent: { fontFamily: fonts.uiSemibold, color: colors.accent },
 });
